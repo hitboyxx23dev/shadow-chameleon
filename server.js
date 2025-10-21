@@ -1,51 +1,57 @@
 const express = require('express');
+const path = require('path');
 const http = require('http');
 const { Server } = require('socket.io');
-const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Serve static files from "public"
 app.use(express.static(path.join(__dirname, 'public')));
-
-// Serve index.html for all unknown routes (important for GitHub Pages / SPA-like routing)
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-let players = {};
+let players = {}; // {socketId: {username, score}}
 let roundActive = false;
-let topic = '';
+let currentWord = '';
 let chameleonId = '';
-let answers = {};
-let votes = {};
+let answers = {}; // {socketId: clue/answer}
+let votes = {};   // {voterId: votedId}
 
-const animeTopics = [
-    "Naruto characters",
-    "One Piece characters",
-    "Attack on Titan",
-    "Dragon Ball Z characters",
-    "My Hero Academia"
-];
+// Multiple themes
+const themes = {
+    "Anime": ["Naruto", "One Piece", "Attack on Titan", "Dragon Ball Z", "My Hero Academia"],
+    "Games": ["Minecraft", "Fortnite", "Zelda", "Among Us", "Overwatch"],
+    "Movies": ["Inception", "Titanic", "Avengers", "The Matrix", "Jurassic Park"]
+};
+
+function pickWord(theme) {
+    const words = themes[theme] || themes["Anime"];
+    return words[Math.floor(Math.random() * words.length)];
+}
 
 function startRound() {
     const ids = Object.keys(players);
-    if(ids.length < 3) return;
+    if(ids.length < 2) return; // Need at least 2 players
 
-    topic = animeTopics[Math.floor(Math.random() * animeTopics.length)];
+    const themeNames = Object.keys(themes);
+    const chosenTheme = themeNames[Math.floor(Math.random() * themeNames.length)];
+    currentWord = pickWord(chosenTheme);
     chameleonId = ids[Math.floor(Math.random() * ids.length)];
     answers = {};
     votes = {};
     roundActive = true;
 
     ids.forEach(id => {
-        if(id === chameleonId) io.to(id).emit('round-start', { role: 'chameleon' });
-        else io.to(id).emit('round-start', { role: 'player', topic });
+        if(id === chameleonId) {
+            io.to(id).emit('round-start', { role: 'chameleon', theme: chosenTheme });
+        } else {
+            io.to(id).emit('round-start', { role: 'player', word: currentWord, theme: chosenTheme });
+        }
     });
 
-    io.emit('chat-message', { username: 'SYSTEM', message: `Round started! Topic assigned.` });
+    io.emit('chat-message', { username: 'SYSTEM', message: `Round started! Theme: ${chosenTheme}` });
 }
 
 function endRound() {
@@ -60,22 +66,22 @@ function tallyVotes() {
     });
 
     Object.keys(players).forEach(id => {
-        if(correctVotes === 0 && id === chameleonId) players[id].score += 2;
-        else if(votes[id] === chameleonId) players[id].score += 1;
+        if(id === chameleonId && correctVotes === 0) players[id].score += 2; // Chameleon survives
+        else if(votes[id] === chameleonId) players[id].score += 1;           // Players get point
     });
 
     io.emit('update-scores', players);
-    setTimeout(startRound, 5000);
+    setTimeout(startRound, 5000); // Next round
 }
 
-io.on('connection', (socket) => {
+io.on('connection', socket => {
     console.log(socket.id, 'connected');
 
     socket.on('set-username', username => {
         players[socket.id] = { username, score: 0 };
         io.emit('player-list', Object.values(players).map(p => p.username));
 
-        if(!roundActive && Object.keys(players).length >= 3) startRound();
+        if(!roundActive && Object.keys(players).length >= 2) startRound();
     });
 
     socket.on('submit-answer', answer => {
@@ -108,4 +114,4 @@ io.on('connection', (socket) => {
     });
 });
 
-server.listen(3000, () => console.log('Server running on port 3000'));
+server.listen(3000, () => console.log('Server running on http://localhost:3000'));
