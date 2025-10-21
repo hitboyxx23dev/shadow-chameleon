@@ -8,17 +8,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-let players = {}; // {socketId: {username, score}}
-let roundActive = false;
-let currentTopic = '';
-let currentWord = '';
-let chameleonId = '';
-let answers = {};
-let votes = {};
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 // Default themes
 let themes = {
@@ -27,103 +17,145 @@ let themes = {
     "Movies": ["Inception", "Titanic", "Avengers", "Matrix", "Jurassic Park"]
 };
 
-// Store custom themes added by users
 let customThemes = {};
+
+// Rooms: { roomName: { players: {socketId: {username, score}}, leaderId, roundActive, topic, word, chameleonId, answers, votes } }
+let rooms = {};
 
 function pickWord(themeName) {
     let words = themes[themeName] || customThemes[themeName] || ["Default"];
     return words[Math.floor(Math.random() * words.length)];
 }
 
-function startRound(themeName) {
-    const ids = Object.keys(players);
-    if(ids.length < 2) return; // minimum 2 players
+function startRound(roomName, themeName) {
+    const room = rooms[roomName];
+    if(!room) return;
 
-    const selectedTheme = themeName || Object.keys(themes)[Math.floor(Math.random() * Object.keys(themes).length)];
-    currentTopic = selectedTheme;
-    currentWord = pickWord(selectedTheme);
-    chameleonId = ids[Math.floor(Math.random() * ids.length)];
-    answers = {};
-    votes = {};
-    roundActive = true;
+    const playerIds = Object.keys(room.players);
+    if(playerIds.length < 3) {
+        io.to(room.leaderId).emit('not-enough-players');
+        return;
+    }
 
-    ids.forEach(id => {
-        if(id === chameleonId) {
-            io.to(id).emit('round-start', { role: 'chameleon', topic: currentTopic });
-        } else {
-            io.to(id).emit('round-start', { role: 'player', topic: currentTopic, word: currentWord });
-        }
+    const selectedTheme = themeName || Object.keys(themes)[Math.floor(Math.random()*Object.keys(themes).length)];
+    room.topic = selectedTheme;
+    room.word = pickWord(selectedTheme);
+    room.chameleonId = playerIds[Math.floor(Math.random()*playerIds.length)];
+    room.answers = {};
+    room.votes = {};
+    room.roundActive = true;
+
+    playerIds.forEach(id => {
+        if(id === room.chameleonId)
+            io.to(id).emit('round-start', { role: 'chameleon', topic: room.topic });
+        else
+            io.to(id).emit('round-start', { role: 'player', topic: room.topic, word: room.word });
     });
 
-    io.emit('chat-message', { username: 'SYSTEM', message: `Round started! Theme: ${selectedTheme}` });
+    io.in(roomName).emit('chat-message', { username: 'SYSTEM', message: `Round started! Theme: ${selectedTheme}` });
 }
 
-function endRound() {
-    roundActive = false;
-    io.emit('round-end', { answers, chameleon: players[chameleonId]?.username || 'Unknown', word: currentWord });
+function endRound(roomName) {
+    const room = rooms[roomName];
+    if(!room) return;
+
+    room.roundActive = false;
+    io.in(roomName).emit('round-end', {
+        answers: room.answers,
+        chameleon: room.players[room.chameleonId]?.username,
+        word: room.word
+    });
 }
 
-function tallyVotes() {
+function tallyVotes(roomName) {
+    const room = rooms[roomName];
+    if(!room) return;
+
     let correctVotes = 0;
-    Object.values(votes).forEach(votedId => {
-        if(votedId === chameleonId) correctVotes++;
+    Object.values(room.votes).forEach(votedId => {
+        if(votedId === room.chameleonId) correctVotes++;
     });
 
-    Object.keys(players).forEach(id => {
-        if(id === chameleonId && correctVotes === 0) players[id].score += 2; // Chameleon survives
-        else if(votes[id] === chameleonId) players[id].score += 1;           // Players get points
+    Object.keys(room.players).forEach(id => {
+        if(id === room.chameleonId && correctVotes === 0) room.players[id].score += 2;
+        else if(room.votes[id] === room.chameleonId) room.players[id].score += 1;
     });
 
-    io.emit('update-scores', players);
-    setTimeout(() => startRound(currentTopic), 5000); // next round with same theme
+    io.in(roomName).emit('update-scores', room.players);
+    // Next round automatically after 5 seconds
+    setTimeout(() => startRound(roomName, room.topic), 5000);
 }
 
 io.on('connection', socket => {
     console.log(socket.id, 'connected');
 
-    socket.on('set-username', username => {
-        players[socket.id] = { username, score: 0 };
-        io.emit('player-list', Object.values(players).map(p => p.username));
+    socket.on('join-room', ({ username, roomName }) => {
+        if(!rooms[roomName]) rooms[roomName] = { players: {}, leaderId: socket.id, roundActive: false };
+        const room = rooms[roomName];
+
+        socket.join(roomName);
+        room.players[socket.id] = { username, score: 0 };
+        if(!room.leaderId) room.leaderId = socket.id;
+
+        io.in(roomName).emit('player-list', Object.values(room.players).map(p => p.username));
+        io.to(socket.id).emit('is-leader', socket.id === room.leaderId);
+
+        // Send theme list
+        socket.emit('theme-list', Object.keys({...themes, ...customThemes}));
     });
 
-    socket.on('submit-answer', answer => {
-        if(!roundActive) return;
-        answers[socket.id] = answer;
+    socket.on('start-round', ({ roomName, themeName }) => {
+        const room = rooms[roomName];
+        if(!room) return;
+        if(socket.id !== room.leaderId) return; // Only leader can start
+        startRound(roomName, themeName);
+    });
 
-        if(Object.keys(answers).length === Object.keys(players).length) {
-            io.emit('chat-message', { username: 'SYSTEM', message: 'All answers submitted! Vote for the Chameleon.' });
-            io.emit('vote-start', { players: Object.entries(players).map(([id, p]) => ({id, username: p.username})) });
+    socket.on('submit-answer', ({ roomName, answer }) => {
+        const room = rooms[roomName];
+        if(!room || !room.roundActive) return;
+        room.answers[socket.id] = answer;
+
+        if(Object.keys(room.answers).length === Object.keys(room.players).length) {
+            io.in(roomName).emit('chat-message', { username:'SYSTEM', message: 'All answers submitted! Vote for the Chameleon.' });
+            io.in(roomName).emit('vote-start', { players: Object.entries(room.players).map(([id, p]) => ({id, username: p.username})) });
         }
     });
 
-    socket.on('vote', votedId => {
-        votes[socket.id] = votedId;
-        if(Object.keys(votes).length === Object.keys(players).length) {
-            tallyVotes();
-            endRound();
-        }
-    });
+    socket.on('vote', ({ roomName, votedId }) => {
+        const room = rooms[roomName];
+        if(!room) return;
+        room.votes[socket.id] = votedId;
 
-    socket.on('chat-message', msg => {
-        if(players[socket.id]) io.emit('chat-message', { username: players[socket.id].username, message: msg });
+        if(Object.keys(room.votes).length === Object.keys(room.players).length) {
+            tallyVotes(roomName);
+            endRound(roomName);
+        }
     });
 
     socket.on('add-custom-theme', data => {
         const { name, words } = data;
-        if(name && words && words.length > 0) {
+        if(name && words && words.length>0) {
             customThemes[name] = words;
-            io.emit('theme-list', Object.keys({...themes, ...customThemes}));
         }
     });
 
-    socket.on('start-round-theme', themeName => {
-        if(!roundActive) startRound(themeName);
+    socket.on('chat-message', ({ roomName, msg }) => {
+        const room = rooms[roomName];
+        if(!room || !room.players[socket.id]) return;
+        io.in(roomName).emit('chat-message', { username: room.players[socket.id].username, message: msg });
     });
 
     socket.on('disconnect', () => {
-        delete players[socket.id];
-        io.emit('player-list', Object.values(players).map(p => p.username));
+        for(const roomName in rooms) {
+            const room = rooms[roomName];
+            if(room.players[socket.id]) {
+                delete room.players[socket.id];
+                if(room.leaderId === socket.id) room.leaderId = Object.keys(room.players)[0] || null;
+                io.in(roomName).emit('player-list', Object.values(room.players).map(p => p.username));
+            }
+        }
     });
 });
 
-server.listen(3000, () => console.log('Server running on http://localhost:3000'));
+server.listen(3000, ()=>console.log('Server running on http://localhost:3000'));
