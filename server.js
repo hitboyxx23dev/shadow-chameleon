@@ -1,19 +1,26 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-app.use(express.static('public'));
+// Serve static files from "public"
+app.use(express.static(path.join(__dirname, 'public')));
 
-let players = {}; // {socketId: {username, score}}
+// Serve index.html for all unknown routes (important for GitHub Pages / SPA-like routing)
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+let players = {};
 let roundActive = false;
 let topic = '';
 let chameleonId = '';
-let answers = {}; // {socketId: answer}
-let votes = {}; // {voterId: votedId}
+let answers = {};
+let votes = {};
 
 const animeTopics = [
     "Naruto characters",
@@ -25,7 +32,7 @@ const animeTopics = [
 
 function startRound() {
     const ids = Object.keys(players);
-    if(ids.length < 3) return; // Need at least 3 players
+    if(ids.length < 3) return;
 
     topic = animeTopics[Math.floor(Math.random() * animeTopics.length)];
     chameleonId = ids[Math.floor(Math.random() * ids.length)];
@@ -34,11 +41,8 @@ function startRound() {
     roundActive = true;
 
     ids.forEach(id => {
-        if(id === chameleonId) {
-            io.to(id).emit('round-start', { role: 'chameleon' });
-        } else {
-            io.to(id).emit('round-start', { role: 'player', topic });
-        }
+        if(id === chameleonId) io.to(id).emit('round-start', { role: 'chameleon' });
+        else io.to(id).emit('round-start', { role: 'player', topic });
     });
 
     io.emit('chat-message', { username: 'SYSTEM', message: `Round started! Topic assigned.` });
@@ -46,7 +50,7 @@ function startRound() {
 
 function endRound() {
     roundActive = false;
-    io.emit('round-end', { answers, chameleon: players[chameleonId].username });
+    io.emit('round-end', { answers, chameleon: players[chameleonId]?.username || 'Unknown' });
 }
 
 function tallyVotes() {
@@ -55,18 +59,10 @@ function tallyVotes() {
         if(votedId === chameleonId) correctVotes++;
     });
 
-    const ids = Object.keys(players);
-    if(correctVotes === 0) {
-        // Chameleon survives
-        players[chameleonId].score += 2;
-    } else {
-        // Players get points
-        ids.forEach(id => {
-            if(id !== chameleonId && votes[id] === chameleonId) {
-                players[id].score += 1;
-            }
-        });
-    }
+    Object.keys(players).forEach(id => {
+        if(correctVotes === 0 && id === chameleonId) players[id].score += 2;
+        else if(votes[id] === chameleonId) players[id].score += 1;
+    });
 
     io.emit('update-scores', players);
     setTimeout(startRound, 5000);
