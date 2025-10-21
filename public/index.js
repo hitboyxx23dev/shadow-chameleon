@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shadow Chameleon</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>Shadow Chameleon</h1>
+
+    <div id="login">
+        <input id="username-input" placeholder="Enter your username">
+        <button id="login-btn">Join Game</button>
+    </div>
+
+    <div id="game" style="display:none;">
+        <div id="game-info">
+            <p id="topic">Waiting for round...</p>
+            <p id="role-info"></p>
+        </div>
+
+        <div id="chat-container">
+            <div id="chat-box"></div>
+            <input id="chat-input" placeholder="Type your answer..." autocomplete="off">
+            <button id="send-btn">Send</button>
+        </div>
+
+        <div id="vote-container" style="display:none;">
+            <h3>Vote for the Chameleon</h3>
+            <div id="vote-buttons"></div>
+        </div>
+
+        <div id="score-board">
+            <h3>Scores</h3>
+            <ul id="scores"></ul>
+        </div>
+    </div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
