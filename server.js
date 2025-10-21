@@ -14,30 +14,34 @@ app.get('/', (req, res) => {
 
 let players = {}; // {socketId: {username, score}}
 let roundActive = false;
+let currentTopic = '';
 let currentWord = '';
 let chameleonId = '';
-let answers = {}; // {socketId: clue/answer}
-let votes = {};   // {voterId: votedId}
+let answers = {};
+let votes = {};
 
-// Multiple themes
-const themes = {
-    "Anime": ["Naruto", "One Piece", "Attack on Titan", "Dragon Ball Z", "My Hero Academia"],
+// Default themes
+let themes = {
+    "Anime": ["Naruto", "Luffy", "Goku", "Deku", "Eren"],
     "Games": ["Minecraft", "Fortnite", "Zelda", "Among Us", "Overwatch"],
-    "Movies": ["Inception", "Titanic", "Avengers", "The Matrix", "Jurassic Park"]
+    "Movies": ["Inception", "Titanic", "Avengers", "Matrix", "Jurassic Park"]
 };
 
-function pickWord(theme) {
-    const words = themes[theme] || themes["Anime"];
+// Store custom themes added by users
+let customThemes = {};
+
+function pickWord(themeName) {
+    let words = themes[themeName] || customThemes[themeName] || ["Default"];
     return words[Math.floor(Math.random() * words.length)];
 }
 
-function startRound() {
+function startRound(themeName) {
     const ids = Object.keys(players);
-    if(ids.length < 3) return; // Need at least 2 players
+    if(ids.length < 2) return; // minimum 2 players
 
-    const themeNames = Object.keys(themes);
-    const chosenTheme = themeNames[Math.floor(Math.random() * themeNames.length)];
-    currentWord = pickWord(chosenTheme);
+    const selectedTheme = themeName || Object.keys(themes)[Math.floor(Math.random() * Object.keys(themes).length)];
+    currentTopic = selectedTheme;
+    currentWord = pickWord(selectedTheme);
     chameleonId = ids[Math.floor(Math.random() * ids.length)];
     answers = {};
     votes = {};
@@ -45,18 +49,18 @@ function startRound() {
 
     ids.forEach(id => {
         if(id === chameleonId) {
-            io.to(id).emit('round-start', { role: 'chameleon', theme: chosenTheme });
+            io.to(id).emit('round-start', { role: 'chameleon', topic: currentTopic });
         } else {
-            io.to(id).emit('round-start', { role: 'player', word: currentWord, theme: chosenTheme });
+            io.to(id).emit('round-start', { role: 'player', topic: currentTopic, word: currentWord });
         }
     });
 
-    io.emit('chat-message', { username: 'SYSTEM', message: `Round started! Theme: ${chosenTheme}` });
+    io.emit('chat-message', { username: 'SYSTEM', message: `Round started! Theme: ${selectedTheme}` });
 }
 
 function endRound() {
     roundActive = false;
-    io.emit('round-end', { answers, chameleon: players[chameleonId]?.username || 'Unknown' });
+    io.emit('round-end', { answers, chameleon: players[chameleonId]?.username || 'Unknown', word: currentWord });
 }
 
 function tallyVotes() {
@@ -67,11 +71,11 @@ function tallyVotes() {
 
     Object.keys(players).forEach(id => {
         if(id === chameleonId && correctVotes === 0) players[id].score += 2; // Chameleon survives
-        else if(votes[id] === chameleonId) players[id].score += 1;           // Players get point
+        else if(votes[id] === chameleonId) players[id].score += 1;           // Players get points
     });
 
     io.emit('update-scores', players);
-    setTimeout(startRound, 5000); // Next round
+    setTimeout(() => startRound(currentTopic), 5000); // next round with same theme
 }
 
 io.on('connection', socket => {
@@ -80,8 +84,6 @@ io.on('connection', socket => {
     socket.on('set-username', username => {
         players[socket.id] = { username, score: 0 };
         io.emit('player-list', Object.values(players).map(p => p.username));
-
-        if(!roundActive && Object.keys(players).length >= 2) startRound();
     });
 
     socket.on('submit-answer', answer => {
@@ -103,9 +105,19 @@ io.on('connection', socket => {
     });
 
     socket.on('chat-message', msg => {
-        if(players[socket.id]) {
-            io.emit('chat-message', { username: players[socket.id].username, message: msg });
+        if(players[socket.id]) io.emit('chat-message', { username: players[socket.id].username, message: msg });
+    });
+
+    socket.on('add-custom-theme', data => {
+        const { name, words } = data;
+        if(name && words && words.length > 0) {
+            customThemes[name] = words;
+            io.emit('theme-list', Object.keys({...themes, ...customThemes}));
         }
+    });
+
+    socket.on('start-round-theme', themeName => {
+        if(!roundActive) startRound(themeName);
     });
 
     socket.on('disconnect', () => {
