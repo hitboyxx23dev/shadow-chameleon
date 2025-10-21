@@ -1,9 +1,12 @@
 const socket = io();
 
+// Login elements
 const loginDiv = document.getElementById('login');
 const usernameInput = document.getElementById('username-input');
+const roomInput = document.getElementById('room-input');
 const loginBtn = document.getElementById('login-btn');
 
+// Theme selection elements
 const themeSelectDiv = document.getElementById('theme-select');
 const themeDropdown = document.getElementById('theme-dropdown');
 const startRoundBtn = document.getElementById('start-round-btn');
@@ -11,26 +14,31 @@ const customThemeName = document.getElementById('custom-theme-name');
 const customThemeWords = document.getElementById('custom-theme-words');
 const addCustomThemeBtn = document.getElementById('add-custom-theme-btn');
 
+// Game elements
 const gameDiv = document.getElementById('game');
 const themeInfo = document.getElementById('theme-info');
 const roleInfo = document.getElementById('role-info');
+const leaderInfo = document.getElementById('leader-info');
 const chatBox = document.getElementById('chat-box');
 const chatInput = document.getElementById('chat-input');
 const sendBtn = document.getElementById('send-btn');
-
 const voteContainer = document.getElementById('vote-container');
 const voteButtons = document.getElementById('vote-buttons');
 const scoreList = document.getElementById('scores');
 
 let role = '';
+let roomName = '';
+let isLeader = false;
 
+// Join room
 loginBtn.addEventListener('click', () => {
     const username = usernameInput.value.trim();
-    if(username){
+    roomName = roomInput.value.trim();
+    if(username && roomName){
         loginDiv.style.display = 'none';
         themeSelectDiv.style.display = 'block';
         gameDiv.style.display = 'block';
-        socket.emit('set-username', username);
+        socket.emit('join-room', { username, roomName });
     }
 });
 
@@ -45,10 +53,17 @@ socket.on('theme-list', themes => {
     });
 });
 
+// Leader check
+socket.on('is-leader', flag => {
+    isLeader = flag;
+    leaderInfo.textContent = isLeader ? 'You are the Leader' : '';
+    startRoundBtn.disabled = !isLeader;
+});
+
 // Add custom theme
 addCustomThemeBtn.addEventListener('click', () => {
     const name = customThemeName.value.trim();
-    const words = customThemeWords.value.split(',').map(w=>w.trim()).filter(w=>w);
+    const words = customThemeWords.value.split(',').map(w => w.trim()).filter(w => w);
     if(name && words.length) {
         socket.emit('add-custom-theme', { name, words });
         customThemeName.value = '';
@@ -56,19 +71,23 @@ addCustomThemeBtn.addEventListener('click', () => {
     }
 });
 
-// Start round with selected theme
+// Start round (leader only)
 startRoundBtn.addEventListener('click', () => {
+    if(!isLeader) return;
     const theme = themeDropdown.value;
-    socket.emit('start-round-theme', theme);
+    socket.emit('start-round', { roomName, themeName: theme });
 });
 
+// Send chat / clue
 sendBtn.addEventListener('click', () => {
     const msg = chatInput.value.trim();
     if(!msg) return;
-    socket.emit('submit-answer', msg);
+    socket.emit('chat-message', { roomName, msg });
+    socket.emit('submit-answer', { roomName, answer: msg });
     chatInput.value = '';
 });
 
+// Round events
 socket.on('round-start', data => {
     role = data.role;
     if(role === 'chameleon') roleInfo.textContent = `You are the CHAMELEON! Topic: ${data.topic}`;
@@ -91,7 +110,7 @@ socket.on('vote-start', data => {
         const btn = document.createElement('button');
         btn.textContent = p.username;
         btn.addEventListener('click', () => {
-            socket.emit('vote', p.id);
+            socket.emit('vote', { roomName, votedId: p.id });
             voteContainer.style.display = 'none';
         });
         voteButtons.appendChild(btn);
@@ -99,7 +118,7 @@ socket.on('vote-start', data => {
 });
 
 socket.on('round-end', data => {
-    themeInfo.textContent = `Round Over! Chameleon was ${data.chameleon} | Word: ${data.word}`;
+    themeInfo.textContent = `Round Over! Chameleon: ${data.chameleon} | Word: ${data.word}`;
     chatBox.innerHTML = '';
     Object.values(data.answers).forEach(answer => {
         const p = document.createElement('p');
@@ -117,5 +136,12 @@ socket.on('update-scores', players => {
     });
 });
 
-// Request theme list on connect
-socket.emit('theme-list-request');
+// Not enough players
+socket.on('not-enough-players', () => {
+    alert('Not enough players to start the game (minimum 3)');
+});
+
+// Update player list
+socket.on('player-list', players => {
+    // Can display player list if desired
+});
