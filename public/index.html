@@ -9,25 +9,31 @@
 <body>
 <h1>Shadow Chameleon</h1>
 
+<!-- Login / Room Join -->
 <div id="login">
     <input id="username-input" placeholder="Enter your username">
-    <button id="login-btn">Join Game</button>
+    <input id="room-input" placeholder="Enter room name">
+    <button id="login-btn">Join Room</button>
 </div>
 
+<!-- Theme Selection / Leader Controls -->
 <div id="theme-select" style="display:none;">
-    <h3>Select Theme:</h3>
+    <h3>Select Theme (Leader Only)</h3>
     <select id="theme-dropdown"></select>
     <button id="start-round-btn">Start Round</button>
+
     <h4>Or create custom theme:</h4>
     <input id="custom-theme-name" placeholder="Theme Name">
     <input id="custom-theme-words" placeholder="Comma separated words">
     <button id="add-custom-theme-btn">Add Custom Theme</button>
 </div>
 
+<!-- Game Area -->
 <div id="game" style="display:none;">
     <div id="game-info">
         <p id="theme-info">Waiting for round...</p>
         <p id="role-info"></p>
+        <p id="leader-info"></p>
     </div>
 
     <div id="chat-container">
