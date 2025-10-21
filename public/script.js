@@ -78,16 +78,17 @@ startRoundBtn.addEventListener('click', () => {
     socket.emit('start-round', { roomName, themeName: theme });
 });
 
-// Send chat / clue
+// Send clue or chat
 sendBtn.addEventListener('click', () => {
     const msg = chatInput.value.trim();
     if(!msg) return;
     socket.emit('chat-message', { roomName, msg });
-    socket.emit('submit-answer', { roomName, answer: msg });
+    socket.emit('submit-clue', { roomName, clue: msg });
     chatInput.value = '';
+    chatInput.disabled = true; // lock until next turn
 });
 
-// Round events
+// Round start
 socket.on('round-start', data => {
     role = data.role;
     if(role === 'chameleon') roleInfo.textContent = `You are the CHAMELEON! Topic: ${data.topic}`;
@@ -96,6 +97,30 @@ socket.on('round-start', data => {
     chatBox.innerHTML = '';
 });
 
+// Lock chat for turns
+socket.on('chat-locked', currentPlayerId => {
+    chatInput.disabled = socket.id !== currentPlayerId;
+    chatInput.placeholder = socket.id === currentPlayerId ? 'Your turn to give a clue!' : 'Waiting for other player...';
+});
+
+// Unlock chat for your turn
+socket.on('your-turn', () => {
+    chatInput.disabled = false;
+    chatInput.placeholder = 'Your turn to give a clue!';
+});
+
+// Unlock chat for all (discussion)
+socket.on('chat-unlock-all', () => {
+    chatInput.disabled = false;
+    chatInput.placeholder = 'Discussion phase! Chat freely.';
+});
+
+// Voting for second hint round
+socket.on('start-second-hint-vote', () => {
+    alert('First hint round done! Vote for second hint round or discuss.');
+});
+
+// Chat messages
 socket.on('chat-message', data => {
     const p = document.createElement('p');
     p.textContent = `${data.username}: ${data.message}`;
@@ -103,6 +128,7 @@ socket.on('chat-message', data => {
     chatBox.scrollTop = chatBox.scrollHeight;
 });
 
+// Vote buttons
 socket.on('vote-start', data => {
     voteContainer.style.display = 'block';
     voteButtons.innerHTML = '';
@@ -117,16 +143,18 @@ socket.on('vote-start', data => {
     });
 });
 
+// Round end
 socket.on('round-end', data => {
     themeInfo.textContent = `Round Over! Chameleon: ${data.chameleon} | Word: ${data.word}`;
     chatBox.innerHTML = '';
-    Object.values(data.answers).forEach(answer => {
+    Object.entries(data.answers).forEach(([id, clues]) => {
         const p = document.createElement('p');
-        p.textContent = answer;
+        p.textContent = `${clues.join(', ')}`;
         chatBox.appendChild(p);
     });
 });
 
+// Update scores
 socket.on('update-scores', players => {
     scoreList.innerHTML = '';
     Object.values(players).forEach(p => {
@@ -143,5 +171,5 @@ socket.on('not-enough-players', () => {
 
 // Update player list
 socket.on('player-list', players => {
-    // Can display player list if desired
+    // Optionally display player list
 });
