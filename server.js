@@ -33,7 +33,7 @@ function pickWord(theme) {
 
 function startRound() {
     const ids = Object.keys(players);
-    if(ids.length < 2) return; // Need at least 2 players
+    if(ids.length < 3) return; // Need at least 2 players
 
     const themeNames = Object.keys(themes);
     const chosenTheme = themeNames[Math.floor(Math.random() * themeNames.length)];
