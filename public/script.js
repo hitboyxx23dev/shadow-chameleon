@@ -5,7 +5,7 @@ const usernameInput = document.getElementById('username-input');
 const loginBtn = document.getElementById('login-btn');
 
 const gameDiv = document.getElementById('game');
-const topicText = document.getElementById('topic');
+const themeInfo = document.getElementById('theme-info');
 const roleInfo = document.getElementById('role-info');
 const chatBox = document.getElementById('chat-box');
 const chatInput = document.getElementById('chat-input');
@@ -16,7 +16,6 @@ const voteButtons = document.getElementById('vote-buttons');
 const scoreList = document.getElementById('scores');
 
 let role = '';
-let playerId = '';
 
 loginBtn.addEventListener('click', () => {
     const username = usernameInput.value.trim();
@@ -30,19 +29,20 @@ loginBtn.addEventListener('click', () => {
 sendBtn.addEventListener('click', () => {
     const msg = chatInput.value.trim();
     if(!msg) return;
-    if(role === 'chameleon' || role === 'player') {
-        socket.emit('submit-answer', msg);
-        chatInput.value = '';
-    } else {
-        socket.emit('chat-message', msg);
-        chatInput.value = '';
-    }
+
+    socket.emit('submit-answer', msg);
+    chatInput.value = '';
 });
 
 socket.on('round-start', data => {
     role = data.role;
-    if(role === 'chameleon') roleInfo.textContent = "You are the CHAMELEON! Blend in!";
-    else roleInfo.textContent = `Topic: ${data.topic}`;
+    if(role === 'chameleon') {
+        roleInfo.textContent = `You are the CHAMELEON! Theme: ${data.theme}`;
+    } else {
+        roleInfo.textContent = `Topic: ${data.word} | Theme: ${data.theme}`;
+    }
+    voteContainer.style.display = 'none';
+    chatBox.innerHTML = '';
 });
 
 socket.on('chat-message', data => {
@@ -67,7 +67,13 @@ socket.on('vote-start', data => {
 });
 
 socket.on('round-end', data => {
-    topicText.textContent = `Round Over! Chameleon was ${data.chameleon}`;
+    chatBox.innerHTML = '';
+    themeInfo.textContent = `Round Over! Chameleon was ${data.chameleon}`;
+    Object.entries(data.answers).forEach(([id, answer]) => {
+        const p = document.createElement('p');
+        p.textContent = `${answer}`;
+        chatBox.appendChild(p);
+    });
 });
 
 socket.on('update-scores', players => {
